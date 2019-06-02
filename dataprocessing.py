@@ -1,20 +1,9 @@
 import warnings
 warnings.filterwarnings('ignore')
-from sklearn.preprocessing import LabelEncoder
 import pandas as pd
 import numpy as np
-import tensorflow as tf
-import jieba
-import pickle
-import gc
-from collections import Counter
-from joblib import Parallel,delayed
 from gensim.models import Word2Vec
-from sklearn.model_selection import StratifiedKFold
-from keras.layers import Input,Dense,Lambda,LSTM,concatenate,GRU,Embedding,BatchNormalization,TimeDistributed,GlobalAveragePooling1D,Conv1D
-from keras.models import Model
-import keras.backend as K
-from keras.preprocessing.sequence import pad_sequences
+
 
 
 def load_data(path):

@@ -5,6 +5,11 @@ from generate_w2v import get_w2v
 from dataprocessing import load_data, load_relation, get_entity_idx, get_pos_distance, get_word_index,\
     change_entity_idx, modify_pos_idx, get_sent_padding, get_group_data, get_group_padding
 import numpy as np
+from models import get_model
+from sklearn.model_selection import StratifiedKFold
+import keras.backend as K
+import tensorflow as tf
+import pandas as pd
 import gc
 
 
@@ -97,5 +102,50 @@ if __name__ == '__main__':
     dev_label_grp = sent_dev.groupby(['e1', 'e2']).apply(lambda x: list(set(x['label'].values))[0]).reset_index()
     dev_label_grp.columns = ['e1', 'e2', 'label']
     dev_idx_grp = dev_idx_grp.merge(dev_label_grp, on=['e1', 'e2'], how='left')
+    # 因为在训练集中 0 类占有太大的比例，因此我做了一个随便抽样
+    train_idx_grp_part = train_idx_grp.iloc[33000:]
 
+    part_train = np.array([v for v in train_idx_grp_part['word_idx'].values])
+    part_train_pos1 = np.array([v for v in train_idx_grp_part['e1_distance'].values])
+    part_train_pos2 = np.array([v for v in train_idx_grp_part['e2_distance'].values])
+    part_label = train_idx_grp_part['label'].values
+
+    part_dev = np.array([v for v in dev_idx_grp['word_idx'].values])
+    part_dev_pos1 = np.array([v for v in dev_idx_grp['e1_distance'].values])
+    part_dev_pos2 = np.array([v for v in dev_idx_grp['e2_distance'].values])
+    part_dev_label = dev_idx_grp['label'].values
+
+    part_test = np.array([v for v in test_idx_grp['word_idx'].values])
+    part_test_pos1 = np.array([v for v in test_idx_grp['e1_distance'].values])
+    part_test_pos2 = np.array([v for v in test_idx_grp['e2_distance'].values])
+
+    res = []
+    for tr, va in StratifiedKFold(n_splits=5, shuffle=True).split(part_train, part_label):
+        model = get_model(word_matrix)
+        model.fit(x=[part_train[tr], part_train_pos1[tr], part_train_pos2[tr]],
+                  y=part_label[tr],
+                  batch_size=32,
+                  validation_data=([part_train[va], part_train_pos1[va], part_train_pos2[va]], part_label[va]),
+                  epochs=4)
+        model.compile('sgd', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+        model.fit(x=[part_train[tr], part_train_pos1[tr], part_train_pos2[tr]],
+                  y=part_label[tr],
+                  batch_size=32,
+                  validation_data=([part_train[va], part_train_pos1[va], part_train_pos2[va]], part_label[va]),
+                  epochs=5)
+        restmp = model.predict(x=[part_test, part_test_pos1, part_test_pos2], batch_size=128)
+        res.append(restmp)
+        K.clear_session()
+        tf.reset_default_graph()
+
+    tmp_res = np.mean(res, 0)
+    res_idx = [v.argmax() for v in tmp_res]
+    test_idx_grp['res'] = res_idx
+    real_sent_test = pd.read_csv('./open_data/sent_relation_test.txt', delimiter='\t', header=None)
+    real_sent_test.columns = ['sent_id']
+    real_sent_test = real_sent_test.merge(sent_test[['sent_id', 'e1', 'e2']], on='sent_id', how='left')
+    real_sent_test = real_sent_test.merge(test_idx_grp[['e1', 'e2', 'res']], on=['e1', 'e2'], how='left')
+    real_sent_test.fillna(0, inplace=True)
+    real_sent_test['res'] = real_sent_test['res'].astype(int)
+    real_sent_test[['sent_id', 'res']].to_csv('sent_result.txt', index=False, sep='\t', encoding='utf8', header=None)
 
